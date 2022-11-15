@@ -5,6 +5,10 @@ services:
       dockerfile: ./Dockerfile
     command: [ "main.go" ]
     depends_on: [ "bigquery" ]
+    volumes:
+      - .:/workspace
+    environment:
+      BIGQUERY_EMULATOR_HOST: http://bigquery:9050
   bigquery:
     image: ghcr.io/goccy/bigquery-emulator:0.1.26
     command: [ "--project", "test-project", "--log-level", "debug" ]
