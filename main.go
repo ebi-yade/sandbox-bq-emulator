@@ -37,7 +37,7 @@ func run(ctx context.Context) error {
 	if addr == "" {
 		return errors.New("error BIGQUERY_EMULATOR_HOST must not be empty")
 	}
-	// 参考: Spanner SDK がエミュレータのアドレス切り替えに使っている部分
+	// The following option imitates the one of Spanner emulator.
 	// https://github.com/googleapis/google-cloud-go/blob/5b307584fcd635635aae6a2fc4ba8252f2bbe22d/spanner/client.go#L177-L186
 	opts := []option.ClientOption{
 		option.WithEndpoint(addr),
