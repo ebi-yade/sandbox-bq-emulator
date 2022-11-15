@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
@@ -9,6 +10,7 @@ import (
 
 	"cloud.google.com/go/bigquery"
 	"github.com/pkg/errors"
+	"google.golang.org/api/iterator"
 	"google.golang.org/api/option"
 	"google.golang.org/api/option/internaloption"
 	"google.golang.org/grpc"
@@ -27,15 +29,36 @@ var (
 	// https://cloud.google.com/bigquery/docs/samples/bigquery-nested-repeated-schema
 	schema = bigquery.Schema{
 		{
+			Name:     "jsonPayload",
+			Required: false,
+			Type:     bigquery.RecordFieldType,
+			Schema: bigquery.Schema{
+				{Name: "message", Required: false, Type: bigquery.StringFieldType},
+			},
+		},
+		{
 			Name:     "labels",
 			Required: false,
 			Type:     bigquery.RecordFieldType,
 			Schema: bigquery.Schema{
-				{Name: "log_id", Required: false, Type: bigquery.StringFieldType},
+				{Name: "event_id", Required: false, Type: bigquery.StringFieldType},
 			},
 		},
 	}
 )
+
+type Record struct {
+	JSONPayload *JSONPayload `bigquery:"jsonPayload,nullable"`
+	Labels      *Labels      `bigquery:"labels,nullable"`
+}
+
+type JSONPayload struct {
+	Message bigquery.NullString `bigquery:"message"`
+}
+
+type Labels struct {
+	EventID bigquery.NullString `bigquery:"event_id"`
+}
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -90,7 +113,50 @@ func run(ctx context.Context) error {
 		return errors.Wrap(err, "error table.Metadata")
 	}
 	log.Printf("[DEBUG] table created: %#v\n", tbMeta)
+
+	records := []*Record{
+		{
+			JSONPayload: &JSONPayload{Message: validString("new user created!")},
+			Labels:      &Labels{EventID: validString("user_created")},
+		},
+		{
+			JSONPayload: &JSONPayload{Message: validString("new article created!")},
+			Labels:      &Labels{EventID: validString("article_created")},
+		},
+		{
+			JSONPayload: &JSONPayload{Message: validString("article updated!")},
+			Labels:      &Labels{EventID: validString("article_updated")},
+		},
+	}
+	if err := table.Inserter().Put(ctx, records); err != nil {
+		return errors.Wrap(err, "error Put records")
+	}
+	log.Printf("[DEBUG] inserted %d records", len(records))
+
+	query := fmt.Sprintf(`SELECT labels.event_id FROM %s.%s.%s WHERE labels.event_id="article_created"`, projectID, datasetID, tableID)
+	itr, err := cli.Query(query).Read(ctx)
+	if err != nil {
+		return errors.Wrap(err, "error Read query")
+	}
+	for {
+		record := &Labels{}
+		if err := itr.Next(record); err != nil {
+			if errors.Is(err, iterator.Done) {
+				break
+			}
+			return errors.Wrap(err, "error itr.Next")
+		}
+		log.Printf("got record: %#v", *record)
+	}
+
 	return nil
+}
+
+func validString(str string) bigquery.NullString {
+	return bigquery.NullString{
+		StringVal: str,
+		Valid:     true,
+	}
 }
 
 func clean(dataset *bigquery.Dataset) {
